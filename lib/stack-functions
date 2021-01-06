@@ -82,7 +82,7 @@ stacks() {
              ]"                                       \
     --output text       |
   grep -E -- "$filters" |
-  LC_ALL=C sort -b -k 3 |
+  LC_ALL=C sort -b -k 4 |
   column -s$'\t' -t
 }
 
@@ -472,6 +472,60 @@ stack-asg-instances() {
   fi
 }
 
+stack-detect-drift() {
+
+  # start the detect drift on stack
+
+  local inputs=$(skim-stdin "$@")
+  local stack=$(_bma_stack_name_arg ${inputs})
+  [[ -z ${stack} ]] && __bma_usage "stack" && return 1
+
+  aws cloudformation detect-stack-drift \
+    --stack-name "${stack}" \
+    --output text
+}
+
+stack-drift-status() {
+
+  # List status of stack drift status
+
+  local stacks=$(skim-stdin "$@")
+  [[ -z ${stacks} ]] && __bma_usage "stack [stack]" && return 1
+
+  local stack
+  for stack in $stacks; do
+    aws cloudformation describe-stacks                   \
+      --stack-name "${stack}"                            \
+      --query "Stacks[][
+        StackName,
+        DriftInformation.StackDriftStatus,
+        DriftInformation.LastCheckTimestamp
+      ]" \
+      --output text
+  done
+}
+
+stack-resource-drifts() {
+
+  # Returns drift information for the resources that have been checked for drift in the specified stack.
+
+  local inputs=$(skim-stdin "$@")
+  local stack=$(_bma_stack_name_arg ${inputs})
+  [[ -z ${stack} ]] && __bma_usage "stack" && return 1
+
+  ## 'StackResourceDrifts[][LogicalResourceId, StackResourceDriftStatus, PropertyDifferences[][DifferenceType, ActualValue, ExpectedValue, PropertyPath]]'
+  aws cloudformation describe-stack-resource-drifts  \
+    --stack-name "${stack}"                          \
+    --query "StackResourceDrifts[][
+      LogicalResourceId,
+      ResourceType,
+      StackResourceDriftStatus,
+      Timestamp
+    ]"                                                \
+    --output text |
+    columnise
+}
+
 
 stack-elbs() {
 
@@ -568,22 +622,22 @@ stack-tag() {
 # XXX Handy but dangerous - updating a nested stack breaks things. Put in a guard.
 # XXX
 # XXX stack-tag-apply() {
-# XXX 
+# XXX
 # XXX   # Apply a stack tag
-# XXX 
+# XXX
 # XXX   local tag_key=$1
 # XXX   local tag_value=$2
 # XXX   shift 2
 # XXX   local usage_msg="tag-key tag-value stack [stack]"
 # XXX   [[ -z "${tag_key}" ]]    && __bma_usage $usage_msg && return 1
 # XXX   [[ -z "${tag_value}" ]] && __bma_usage $usage_msg && return 1
-# XXX 
+# XXX
 # XXX   local stacks=$(skim-stdin "$@")
 # XXX   [[ -z "${stacks}" && -t 0 ]] && __bma_usage $usage_msg && return 1
-# XXX 
+# XXX
 # XXX   local stack
 # XXX   for stack in $stacks; do
-# XXX 
+# XXX
 # XXX     # XXX deal with tagging service failing
 # XXX     local tags=$(aws cloudformation describe-stacks \
 # XXX            --stack-name "$stack"                    \
@@ -591,7 +645,7 @@ stack-tag() {
 # XXX                   [{Key:'$tag_key', Value:'$tag_value'}],
 # XXX                   Stacks[].Tags[?Key != '$tag_key'][]
 # XXX                 ][]")
-# XXX 
+# XXX
 # XXX     local parameters=$(aws cloudformation describe-stacks \
 # XXX            --stack-name "$stack"                          \
 # XXX            --query '
@@ -599,11 +653,11 @@ stack-tag() {
 # XXX                ParameterKey: ParameterKey,
 # XXX                UsePreviousValue: `true`
 # XXX            }')
-# XXX 
+# XXX
 # XXX     local capabilities=''
 # XXX     local capabilities_value=$(_bma_stack_capabilities $stack)
 # XXX     [[ -z "${capabilities_value}" ]] || capabilities="--capabilities ${capabilities_value}"
-# XXX 
+# XXX
 # XXX      $([[ -n $DRY_RUN ]] && echo echo) aws cloudformation update-stack \
 # XXX       --stack-name "$stack"         \
 # XXX       --use-previous-template       \
@@ -619,26 +673,26 @@ stack-tag() {
 # XXX Handy but dangerous - updating a nested stack breaks things. Put in a guard.
 # XXX
 # XXX stack-tag-delete() {
-# XXX 
+# XXX
 # XXX   # delete a stack tag
-# XXX 
+# XXX
 # XXX   local tag_key=$1
 # XXX   shift 1
 # XXX   [[ -z "${tag_key}" ]] && __bma_usage "tag-key stack [stack]" && return 1
-# XXX 
+# XXX
 # XXX   local stacks=$(skim-stdin "$@")
 # XXX   [[ -z "${stacks}" ]] && __bma_usage "tag-key stack [stack]" && return 1
-# XXX 
+# XXX
 # XXX   local stack
 # XXX   for stack in $stacks; do
-# XXX 
+# XXX
 # XXX     # XXX deal with tagging service failing
 # XXX     local tags=$(aws cloudformation describe-stacks \
 # XXX            --stack-name "$stack"                    \
 # XXX            --query "[
 # XXX                   Stacks[].Tags[?Key != '$tag_key'][]
 # XXX                 ][]")
-# XXX 
+# XXX
 # XXX     local parameters=$(aws cloudformation describe-stacks \
 # XXX            --stack-name "$stack"                          \
 # XXX            --query '
@@ -646,13 +700,13 @@ stack-tag() {
 # XXX                ParameterKey: ParameterKey,
 # XXX                UsePreviousValue: `true`
 # XXX            }')
-# XXX 
+# XXX
 # XXX     aws cloudformation update-stack \
 # XXX       --stack-name "$stack"         \
 # XXX       --use-previous-template       \
 # XXX       --parameters "$parameters"    \
 # XXX       --tags "$tags"
-# XXX 
+# XXX
 # XXX   done
 # XXX }
 
